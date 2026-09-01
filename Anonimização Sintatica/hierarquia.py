@@ -1,8 +1,10 @@
 import csv
-import json
 import unicodedata
 from datetime import datetime
 
+
+# Todo o dataset e do estado do Ceara (nao ha coluna de estado no arquivo
+# de mapeamento), entao o nivel 2 da hierarquia de municipio e fixo.
 ESTADO_PADRAO = "Ceara"
 
 
@@ -21,155 +23,118 @@ def normalizar_nome(texto):
 # HIERARQUIA DE municipioCaso (3 niveis: municipio -> regiao -> estado)
 # ---------------------------------------------------------------------------
 
-def carregar_mapeamento_municipio_regiao(caminho_mapa_csv):
+def _carregar_mapa_municipio_regiao(caminho_mapa_csv):
     """
-    Le o arquivo 'map_municipio_regiao.csv' fornecido para o trabalho e monta
-    um dicionario que relaciona a versao normalizada (sem acento, maiuscula)
-    do nome do municipio a sua regiao e ao nome original como aparece no
-    mapa (para exibir no JSON final com a grafia do mapa).
-
-    O CSV tem colunas: (indice sem nome), municipio, regiao.
-
-    Retorna:
-        dict no formato:
-        {
-            "ABAIARA": {"regiao": "CARIRI", "nome_mapa": "ABAIARA"},
-            ...
-        }
-        onde a chave e o nome do municipio normalizado (sem acento).
+    Le 'map_municipio_regiao.csv' e monta um dicionario que relaciona a
+    versao normalizada (sem acento, maiuscula) do nome do municipio a sua
+    regiao. Colunas esperadas: municipio, regiao.
     """
-    mapeamento = {}
-
+    mapa = {}
     with open(caminho_mapa_csv, mode="r", encoding="utf-8") as arquivo:
         leitor = csv.DictReader(arquivo)
         for linha in leitor:
             municipio = linha["municipio"].strip()
             regiao = linha["regiao"].strip()
-
-            chave = normalizar_nome(municipio)
-            mapeamento[chave] = {"regiao": regiao, "nome_mapa": municipio}
-
-    return mapeamento
+            mapa[normalizar_nome(municipio)] = regiao
+    return mapa
 
 
-def extrair_municipios_do_dataset(caminho_dataset_csv, coluna="municipioCaso"):
+def construir_hierarquia_municipio(caminho_covid, caminho_mapa):
     """
-    Percorre o dataset original (covid.csv) e retorna o conjunto (set) de
-    valores distintos encontrados na coluna de municipio.
-    """
-    municipios = set()
-
-    with open(caminho_dataset_csv, mode="r", encoding="utf-8") as arquivo:
-        leitor = csv.DictReader(arquivo)
-        for linha in leitor:
-            valor = linha.get(coluna, "").strip()
-            if valor:
-                municipios.add(valor)
-
-    return municipios
-
-
-def gerar_hierarquia_municipio(caminho_dataset_csv, caminho_mapa_csv,
-                                caminho_saida_json):
-    """
-    Constroi a hierarquia de 3 niveis para 'municipioCaso' e salva em JSON:
+    Constroi a hierarquia de 3 niveis para 'municipioCaso':
         nivel 0: municipio original
         nivel 1: regiao do municipio
-        nivel 2: estado do municipio
+        nivel 2: estado (fixo, "Ceara")
 
-    Municipios presentes no dataset mas sem correspondencia no mapa de
-    municipio->regiao sao reportados (para que sejam excluidos depois,
-    na etapa de anonimizacao, conforme pede o enunciado).
+    Parametros:
+        caminho_covid: caminho para o covid.csv
+        caminho_mapa: caminho para o map_municipio_regiao.csv
 
-    Retorna a lista de municipios SEM mapeamento encontrado (para uso no
-    modulo de anonimizacao, que deve excluir esses registros).
+    Retorna:
+        (hierarquia_municipio, sem_mapeamento)
+
+        hierarquia_municipio: dict {"nivel 0": {...}, "nivel 1": {...},
+                                     "nivel 2": {...}}, com o municipio
+                               original do dataset como chave.
+        sem_mapeamento: lista de municipios do dataset que nao possuem
+                        correspondencia no mapa (para exclusao posterior).
     """
-    mapa = carregar_mapeamento_municipio_regiao(caminho_mapa_csv)
-    municipios_dataset = extrair_municipios_do_dataset(caminho_dataset_csv)
+    mapa_regiao = _carregar_mapa_municipio_regiao(caminho_mapa)
 
-    nivel_0 = {}
-    nivel_1 = {}
-    nivel_2 = {}
+    municipios_dataset = set()
+    with open(caminho_covid, mode="r", encoding="utf-8") as arquivo:
+        leitor = csv.DictReader(arquivo)
+        for linha in leitor:
+            valor = linha.get("municipioCaso", "").strip()
+            if valor:
+                municipios_dataset.add(valor)
+
+    nivel_0, nivel_1, nivel_2 = {}, {}, {}
     sem_mapeamento = []
 
     for municipio in municipios_dataset:
         chave = normalizar_nome(municipio)
 
-        if chave not in mapa:
+        if chave not in mapa_regiao:
             sem_mapeamento.append(municipio)
             continue
 
-        # Mantem a chave do JSON com a grafia original do dataset, como no
-        # exemplo do enunciado (ex.: "Fortaleza": "Fortaleza")
         nivel_0[municipio] = municipio
-        nivel_1[municipio] = mapa[chave]["regiao"]
+        nivel_1[municipio] = mapa_regiao[chave]
         nivel_2[municipio] = ESTADO_PADRAO
 
-    hierarquia = {
+    hierarquia_municipio = {
         "nivel 0": nivel_0,
         "nivel 1": nivel_1,
         "nivel 2": nivel_2,
     }
 
-    with open(caminho_saida_json, mode="w", encoding="utf-8") as arquivo:
-        json.dump(hierarquia, arquivo, ensure_ascii=False, indent=2)
-
     if sem_mapeamento:
         print(f"[AVISO] {len(sem_mapeamento)} municipio(s) sem mapeamento "
-              f"de regiao/estado: {sem_mapeamento}")
+              f"de regiao: {sem_mapeamento}")
 
-    return sem_mapeamento
+    return hierarquia_municipio, sem_mapeamento
 
 
 # ---------------------------------------------------------------------------
 # HIERARQUIA DE dataNascimento (4 niveis)
 # ---------------------------------------------------------------------------
 
-def calcular_faixa_5_anos(ano):
+def _calcular_faixa_5_anos(ano):
     """
     Dado um ano (int), retorna a faixa de 5 anos correspondente no formato
     'aaaa-aaaa'. Ex.: 2003 -> '2001-2005'; 2010 -> '2006-2010'.
     """
-    # Ajusta o ano para o inicio do bloco de 5 anos mais proximo
     inicio = ((ano - 1) // 5) * 5 + 1
     fim = inicio + 4
     return f"{inicio}-{fim}"
 
 
-def extrair_datas_do_dataset(caminho_dataset_csv, coluna="dataNascimento"):
+def construir_hierarquia_data(caminho_covid, formato_entrada="%Y-%m-%d"):
     """
-    Percorre o dataset original e retorna o conjunto de datas distintas
-    (strings no formato dd/mm/aaaa) encontradas na coluna informada.
-    """
-    datas = set()
-
-    with open(caminho_dataset_csv, mode="r", encoding="utf-8") as arquivo:
-        leitor = csv.DictReader(arquivo)
-        for linha in leitor:
-            valor = linha.get(coluna, "").strip()
-            # Ha registros com data vazia ('') no dataset real -- sao
-            # tratados como ausentes e ignorados.
-            if valor:
-                datas.add(valor)
-
-    return datas
-
-
-def gerar_hierarquia_data_nascimento(caminho_dataset_csv, caminho_saida_json,
-                                      formato_entrada="%Y-%m-%d"):
-    """
-    Constroi a hierarquia de 4 niveis para 'dataNascimento' e salva em JSON:
-        nivel 0: data completa (dd/mm/aaaa)
+    Constroi a hierarquia de 4 niveis para 'dataNascimento':
+        nivel 0: data completa (aaaa-mm-dd, formato do covid.csv)
         nivel 1: mes/ano (mm/aaaa)
         nivel 2: ano (aaaa)
         nivel 3: faixa de 5 anos (ex.: 2001-2005)
-    """
-    datas = extrair_datas_do_dataset(caminho_dataset_csv)
 
-    nivel_0 = {}
-    nivel_1 = {}
-    nivel_2 = {}
-    nivel_3 = {}
+    Datas vazias ou em formato invalido sao ignoradas (o registro
+    correspondente deve ser tratado como ausente pelo modulo de
+    anonimizacao).
+
+    Retorna:
+        hierarquia_data: dict {"nivel 0": {...}, ..., "nivel 3": {...}},
+                          com a data original (string) como chave.
+    """
+    datas = set()
+    with open(caminho_covid, mode="r", encoding="utf-8") as arquivo:
+        leitor = csv.DictReader(arquivo)
+        for linha in leitor:
+            valor = linha.get("dataNascimento", "").strip()
+            if valor:
+                datas.add(valor)
+
+    nivel_0, nivel_1, nivel_2, nivel_3 = {}, {}, {}, {}
     invalidas = []
 
     for data_str in datas:
@@ -182,23 +147,20 @@ def gerar_hierarquia_data_nascimento(caminho_dataset_csv, caminho_saida_json,
         nivel_0[data_str] = data_str
         nivel_1[data_str] = data.strftime("%m/%Y")
         nivel_2[data_str] = data.strftime("%Y")
-        nivel_3[data_str] = calcular_faixa_5_anos(data.year)
+        nivel_3[data_str] = _calcular_faixa_5_anos(data.year)
 
-    hierarquia = {
+    hierarquia_data = {
         "nivel 0": nivel_0,
         "nivel 1": nivel_1,
         "nivel 2": nivel_2,
         "nivel 3": nivel_3,
     }
 
-    with open(caminho_saida_json, mode="w", encoding="utf-8") as arquivo:
-        json.dump(hierarquia, arquivo, ensure_ascii=False, indent=2)
-
     if invalidas:
         print(f"[AVISO] {len(invalidas)} data(s) em formato invalido: "
               f"{invalidas}")
 
-    return invalidas
+    return hierarquia_data
 
 
 # ---------------------------------------------------------------------------
@@ -206,26 +168,17 @@ def gerar_hierarquia_data_nascimento(caminho_dataset_csv, caminho_saida_json,
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    # Ajustar os caminhos conforme a estrutura real de pastas do projeto
     CAMINHO_DATASET = "dataset/covid.csv"
-    CAMINHO_MAPA_MUNICIPIO_REGIAO = "dataset/map_municipio_regiao.csv"
-    # 'covid.csv' (colunas incluem 'municipioCaso', 'dataNascimento' em
-    # formato aaaa-mm-dd) e 'map_municipio_regiao.csv' (colunas: indice,
-    # municipio, regiao -- sem coluna de estado).
-    CAMINHO_SAIDA_MUNICIPIO_JSON = "hierarquia_municipioCaso.json"
-    CAMINHO_SAIDA_DATA_JSON = "hierarquia_dataNascimento.json"
+    CAMINHO_MAPA = "dataset/map_municipio_regiao.csv"
 
-    print("Gerando hierarquia de municipioCaso...")
-    gerar_hierarquia_municipio(
-        CAMINHO_DATASET,
-        CAMINHO_MAPA_MUNICIPIO_REGIAO,
-        CAMINHO_SAIDA_MUNICIPIO_JSON,
+    print("Construindo hierarquia de municipioCaso...")
+    hierarquia_municipio, sem_mapeamento = construir_hierarquia_municipio(
+        CAMINHO_DATASET, CAMINHO_MAPA
     )
+    print(f"  {len(hierarquia_municipio['nivel 0'])} municipios mapeados.")
 
-    print("Gerando hierarquia de dataNascimento...")
-    gerar_hierarquia_data_nascimento(
-        CAMINHO_DATASET,
-        CAMINHO_SAIDA_DATA_JSON,
-    )
+    print("Construindo hierarquia de dataNascimento...")
+    hierarquia_data = construir_hierarquia_data(CAMINHO_DATASET)
+    print(f"  {len(hierarquia_data['nivel 0'])} datas mapeadas.")
 
     print("Concluido.")

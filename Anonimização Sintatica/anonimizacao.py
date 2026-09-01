@@ -5,7 +5,7 @@ import os
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from hierarquias import construir_hierarquia_municipio, construir_hierarquia_data
+from hierarquia import construir_hierarquia_municipio, construir_hierarquia_data
 
 
 def carregar_dataset_valido(caminho_covid, hierarquia_municipio):
@@ -44,8 +44,8 @@ def generalizar(df, hierarquia_municipio, hierarquia_data, nm, nd):
 
 
 def main():
-    caminho_covid = "covid.csv"
-    caminho_mapa = "map_municipio_regiao.csv"
+    caminho_covid = "dataset/covid.csv"
+    caminho_mapa = "dataset/map_municipio_regiao.csv"
 
     hierarquia_municipio, _ = construir_hierarquia_municipio(caminho_covid, caminho_mapa)
     hierarquia_data = construir_hierarquia_data(caminho_covid)

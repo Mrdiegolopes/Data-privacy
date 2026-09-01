@@ -206,7 +206,7 @@ def gerar_hierarquia_data_nascimento(caminho_dataset_csv, caminho_saida_json,
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    # Ajustando os caminhos conforme a estrutura real de pastas do projeto
+    # Ajustar os caminhos conforme a estrutura real de pastas do projeto
     CAMINHO_DATASET = "dataset/covid.csv"
     CAMINHO_MAPA_MUNICIPIO_REGIAO = "dataset/map_municipio_regiao.csv"
     # 'covid.csv' (colunas incluem 'municipioCaso', 'dataNascimento' em

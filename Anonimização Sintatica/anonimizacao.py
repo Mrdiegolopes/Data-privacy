@@ -1,18 +1,51 @@
-# Módulo que aplica a generalização, gera os datasets DT_nm_nd.csv e os histogramas HIST_<atributo>_<nivel>.png
+"""
+Módulo responsável pelo laço principal: aplica a generalização,
+gera os datasets DT_nm_nd.csv e os histogramas HIST_<atributo>_<nivel>.png
 
+"""
 
 import os
+import json
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from hierarquias import construir_hierarquia_municipio, construir_hierarquia_data
+from hierarquia import gerar_hierarquia_municipio, gerar_hierarquia_data_nascimento
 
 
-def carregar_dataset_valido(caminho_covid, hierarquia_municipio):
-    """Remove registros cujo município não possui mapeamento na hierarquia."""
+def construir_hierarquias(caminho_covid, caminho_mapa,
+                           saida_municipio_json="hierarquia_municipioCaso.json",
+                           saida_data_json="hierarquia_dataNascimento.json"):
+    """
+    Chama as funções de hierarquias.py (que gravam os JSONs em disco) e
+    recarrega os dois dicionários de hierarquia para uso no restante do
+    pipeline. Necessário porque gerar_hierarquia_municipio/
+    gerar_hierarquia_data_nascimento retornam apenas a lista de valores
+    sem mapeamento, não o dicionário completo.
+    """
+    gerar_hierarquia_municipio(caminho_covid, caminho_mapa, saida_municipio_json)
+    gerar_hierarquia_data_nascimento(caminho_covid, saida_data_json)
+
+    with open(saida_municipio_json, encoding="utf-8") as f:
+        hierarquia_municipio = json.load(f)
+    with open(saida_data_json, encoding="utf-8") as f:
+        hierarquia_data = json.load(f)
+
+    return hierarquia_municipio, hierarquia_data
+
+
+def carregar_dataset_valido(caminho_covid, hierarquia_municipio, hierarquia_data):
+    """
+    Remove registros cujo município ou data de nascimento não possuem
+    mapeamento na hierarquia (valor ausente ou fora do domínio conhecido).
+    """
     df = pd.read_csv(caminho_covid)
     municipios_validos = set(hierarquia_municipio["nivel 0"].keys())
-    return df[df["municipioCaso"].isin(municipios_validos)].copy()
+    datas_validas = set(hierarquia_data["nivel 0"].keys())
+    valido = (
+        df["municipioCaso"].isin(municipios_validos)
+        & df["dataNascimento"].astype(str).isin(datas_validas)
+    )
+    return df[valido].copy()
 
 
 def gerar_histograma(serie, atributo, nivel, pasta_saida="."):
@@ -23,6 +56,9 @@ def gerar_histograma(serie, atributo, nivel, pasta_saida="."):
     if atributo == "municipioCaso" and nivel == 0:
         # muitos municípios distintos: oculta os rótulos no nível 0
         plt.xticks([])
+    if nivel == 0 and atributo in ("municipioCaso", "dataNascimento"):
+        plt.xticks([])
+    
     else:
         plt.xticks(rotation=45, ha="right")
 
@@ -44,13 +80,12 @@ def generalizar(df, hierarquia_municipio, hierarquia_data, nm, nd):
 
 
 def main():
-    caminho_covid = "covid.csv"
-    caminho_mapa = "map_municipio_regiao.csv"
+    caminho_covid = "C:\\Users\\55859\\Documents\\Modelos Personalizados do Office\\diego\\faculdade\\privacidade de dados\\Anonimização Sintatica\\dataset\\covid.csv"
+    caminho_mapa = "C:\\Users\\55859\\Documents\\Modelos Personalizados do Office\\diego\\faculdade\\privacidade de dados\\Anonimização Sintatica\\dataset\\map_municipio_regiao.csv"
 
-    hierarquia_municipio, _ = construir_hierarquia_municipio(caminho_covid, caminho_mapa)
-    hierarquia_data = construir_hierarquia_data(caminho_covid)
+    hierarquia_municipio, hierarquia_data = construir_hierarquias(caminho_covid, caminho_mapa)
 
-    df_valido = carregar_dataset_valido(caminho_covid, hierarquia_municipio)
+    df_valido = carregar_dataset_valido(caminho_covid, hierarquia_municipio, hierarquia_data)
 
     # histogramas do dataset original (nível 0)
     gerar_histograma(df_valido["municipioCaso"], "municipioCaso", 0)

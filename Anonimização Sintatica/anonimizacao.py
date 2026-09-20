@@ -1,7 +1,7 @@
 """
 Módulo responsável pelo laço principal: aplica a generalização,
-gera os datasets DT_nm_nd.csv e os histogramas HIST_<atributo>_<nivel>.png
-
+gera os datasets DT_nm_nd.csv, os JSONs de hierarquia e os histogramas
+HIST_<atributo>_<nivel>.png
 """
 
 import os
@@ -9,7 +9,29 @@ import json
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from hierarquias import construir_hierarquia_municipio, construir_hierarquia_data
+from hierarquia import construir_hierarquia_municipio, construir_hierarquia_data
+
+
+def construir_hierarquias(caminho_covid, caminho_mapa,
+                           saida_municipio_json="hierarquia_municipioCaso.json",
+                           saida_data_json="hierarquia_dataNascimento.json"):
+    """
+    Chama as funções de hierarquia.py, que retornam os dicionários de
+    hierarquia em memória, e salva cada um em JSON (conforme pede o
+    enunciado). Retorna os dois dicionários prontos para uso no restante
+    do pipeline.
+    """
+    hierarquia_municipio, _sem_mapeamento = construir_hierarquia_municipio(
+        caminho_covid, caminho_mapa
+    )
+    hierarquia_data = construir_hierarquia_data(caminho_covid)
+
+    with open(saida_municipio_json, "w", encoding="utf-8") as f:
+        json.dump(hierarquia_municipio, f, ensure_ascii=False, indent=2)
+    with open(saida_data_json, "w", encoding="utf-8") as f:
+        json.dump(hierarquia_data, f, ensure_ascii=False, indent=2)
+
+    return hierarquia_municipio, hierarquia_data
 
 
 def carregar_dataset_valido(caminho_covid, hierarquia_municipio, hierarquia_data):
@@ -32,12 +54,9 @@ def gerar_histograma(serie, atributo, nivel, pasta_saida="."):
     contagem = serie.value_counts()
     contagem.plot(kind="bar")
 
-    if atributo == "municipioCaso" and nivel == 0:
-        # muitos municípios distintos: oculta os rótulos no nível 0
-        plt.xticks([])
     if nivel == 0 and atributo in ("municipioCaso", "dataNascimento"):
+        # muitas categorias distintas: oculta os rótulos no nível 0
         plt.xticks([])
-    
     else:
         plt.xticks(rotation=45, ha="right")
 
@@ -59,8 +78,8 @@ def generalizar(df, hierarquia_municipio, hierarquia_data, nm, nd):
 
 
 def main():
-    caminho_covid = "covid.csv"
-    caminho_mapa = "map_municipio_regiao.csv"
+    caminho_covid = "C:\\Users\\55859\\Documents\\Modelos Personalizados do Office\\diego\\faculdade\\privacidade de dados\\Anonimização Sintatica\\dataset\\covid.csv"
+    caminho_mapa = "C:\\Users\\55859\\Documents\\Modelos Personalizados do Office\\diego\\faculdade\\privacidade de dados\\Anonimização Sintatica\\dataset\\map_municipio_regiao.csv"
 
     hierarquia_municipio, hierarquia_data = construir_hierarquias(caminho_covid, caminho_mapa)
 
